@@ -296,6 +296,7 @@ function paintHeaderInvaders(){
 
 let state={ players:[], games:[], rankPts:[...DEFAULT_RANK_PTS] };
 let tournamentId=null;
+let appReady=false;
 let saveTimer=null;
 let saveInFlight=false;
 let pendingSave=false;
@@ -362,35 +363,93 @@ function totals(){
 }
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
+function authCollection(){
+  return pb.authStore.record?.collectionName || "_superusers";
+}
+
+async function ensureAuth(){
+  if(!pb.authStore.isValid) return false;
+  try{
+    await pb.collection(authCollection()).authRefresh();
+    return true;
+  }catch(e){
+    console.error("Auth refresh failed:", e);
+    pb.authStore.clear();
+    return false;
+  }
+}
+
+async function loginWithPassword(email, password){
+  const collections=["_superusers","users"];
+  let lastErr;
+  for(const name of collections){
+    try{
+      return await pb.collection(name).authWithPassword(email, password);
+    }catch(err){
+      lastErr=err;
+      const status=err?.status;
+      if(status!==400 && status!==401 && status!==403) throw err;
+    }
+  }
+  throw lastErr;
+}
+
 async function loadFromPocketBase(){
-  const list = await pb.collection("tournaments").getList(1,1,{ sort:"created" });
+  if(!(await ensureAuth())){
+    const err=new Error("Not authenticated");
+    err.status=401;
+    throw err;
+  }
+  const list=await pb.collection("tournaments").getList(1,1,{ sort:"id" });
   if(list.items.length){
-    const record = list.items[0];
-    tournamentId = record.id;
-    state = normalizeState(record.state);
+    const record=list.items[0];
+    tournamentId=record.id;
+    state=normalizeState(record.state);
     return;
   }
-  const seeded = defaultSeedState();
-  const created = await pb.collection("tournaments").create({ state: seeded });
-  tournamentId = created.id;
-  state = normalizeState(created.state);
+  const seeded=defaultSeedState();
+  try{
+    const created=await pb.collection("tournaments").create({ state: seeded });
+    tournamentId=created.id;
+    state=normalizeState(created.state);
+  }catch(e){
+    if(e?.status===400 || e?.status===401 || e?.status===403){
+      if(await ensureAuth()){
+        const created=await pb.collection("tournaments").create({ state: seeded });
+        tournamentId=created.id;
+        state=normalizeState(created.state);
+        return;
+      }
+    }
+    throw e;
+  }
 }
 
 async function startApp(){
+  appReady=false;
   setLocked(false);
   paintHeaderInvaders();
   try{
     await loadFromPocketBase();
   }catch(e){
     console.error("Load failed:", e);
-    toast("Impossible de charger — vérifie PocketBase");
-    pb.authStore.clear();
+    if(e?.status===401 || e?.status===403){
+      pb.authStore.clear();
+      toast("Session expirée — reconnecte-toi");
+    }else{
+      toast("Impossible de charger le tournoi");
+    }
     setLocked(true);
     return;
   }
-  document.getElementById("rankPts").value = state.rankPts.join(",");
+  document.getElementById("rankPts").value=state.rankPts.join(",");
   renderAll();
-  await startRealtime();
+  try{
+    await startRealtime();
+  }catch(e){
+    console.warn("Realtime unavailable:", e);
+  }
+  appReady=true;
 }
 
 async function flushSave(){
@@ -422,7 +481,7 @@ async function saveNow(){
   return flushSave();
 }
 function flushSaveOnUnload(){
-  if(!tournamentId || !pb.authStore.isValid) return;
+  if(!appReady || !tournamentId || !pb.authStore.isValid) return;
   clearTimeout(saveTimer);
   saveTimer=null;
   if(saveInFlight) return;
@@ -598,6 +657,7 @@ function bindUiEvents(){
     }
   });
   document.getElementById("logoutBtn").addEventListener("click",()=>{
+    appReady=false;
     pb.authStore.clear();
     if(unsubscribeRealtime){ unsubscribeRealtime(); unsubscribeRealtime=null; }
     setLocked(true);
@@ -620,23 +680,20 @@ document.getElementById("authForm").addEventListener("submit", async (e)=>{
   const password=document.getElementById("authPassword").value;
   if(!email || !password) return;
   try{
-    try{
-      await pb.collection("users").authWithPassword(email,password);
-    }catch(firstErr){
-      // Fallback to PocketBase superuser login when no custom auth collection exists.
-      await pb.collection("_superusers").authWithPassword(email,password);
-    }
-    toast("Connexion réussie");
-    await startApp();
+    await loginWithPassword(email, password);
   }catch(err){
+    console.error("Login failed:", err);
     toast("Identifiants invalides");
+    return;
   }
+  toast("Connexion réussie");
+  await startApp();
 });
 
 bindUiEvents();
 window.addEventListener("pagehide", flushSaveOnUnload);
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="hidden") void saveNow();
+  if(appReady && document.visibilityState==="hidden") void saveNow();
 });
 if(pb.authStore.isValid){
   void startApp();
