@@ -1,13 +1,10 @@
 # Caddy runs in another docker-compose (e.g. capy-front).
-# PocketBase runs in this repo's docker-compose (capy-pocketbase).
+# PocketBase runs in this repo's docker-compose (capy-leaderboard).
+# PocketBase serves everything: frontend (pb_public), API (/api), admin (/_/).
 #
-# Mount static files into the Caddy container (read-only), e.g.:
-#   volumes:
-#     - /opt/capy-leaderboard/pb_public:/var/capy/leaderboard/public:ro
-#     - /opt/capy-leaderboard/leaderboard.html:/var/capy/leaderboard/leaderboard.html:ro
-#
-# PocketBase upstream — pick ONE (see comments in previous versions):
-#   Option A (shared network): reverse_proxy capy-pocketbase:8090
+# Upstream — pick ONE:
+#   Option A (shared network): reverse_proxy capy-leaderboard:8090
+#     Caddy compose joins capy-network (external: true), keeps ports 80/443.
 #   Option B (host bridge):      reverse_proxy host.docker.internal:8090
 #     + extra_hosts: ["host.docker.internal:host-gateway"] on Caddy
 #     + ports: "127.0.0.1:8090:8090" on PocketBase compose
@@ -24,28 +21,7 @@ gaming.capysecurity.com {
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 	}
 
-	# PocketBase API, admin UI, realtime websocket
-	handle /api/* {
-		reverse_proxy capy-leaderboard:8090
-	}
-	handle /_/* {
-		reverse_proxy capy-leaderboard:8090
-	}
-
-	# Standalone static page (local-only version, no PocketBase)
-	handle /leaderboard.html {
-		root * /var/capy/leaderboard
-		file_server
-	}
-	handle /leaderboard {
-		redir /leaderboard.html permanent
-	}
-
-	# Main app UI (pb_public/index.html) — served by Caddy, talks to /api on same host
-	handle {
-		root * /var/capy/leaderboard/public
-		file_server
-	}
+	reverse_proxy capy-leaderboard:8090
 }
 
 # certbot certonly --standalone --non-interactive --agree-tos -m "capy.security@proton.me" -d "gaming.capysecurity.com"
