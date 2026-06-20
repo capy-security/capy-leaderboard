@@ -1,10 +1,12 @@
 services:
-  pocketbase:
+  cappy-pocketbase:
     image: ghcr.io/muchobien/pocketbase:latest
     container_name: capy-pocketbase
     restart: unless-stopped
+    # Host-only publish: Caddy (other compose) reaches PocketBase via host.docker.internal:8090
+    # or via capy-network using reverse_proxy capy-pocketbase:8090
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     volumes:
       - ./pb_data:/pb/pb_data
       - ./pb_public:/pb/pb_public
@@ -17,7 +19,9 @@ services:
         "--publicDir=/pb/pb_public",
         "--migrationsDir=/pb/pb_migrations",
       ]
+    networks:
+      - capy-network
 
 networks:
-  default:
-    name: capy-network
+  capy-network:
+    external: true
