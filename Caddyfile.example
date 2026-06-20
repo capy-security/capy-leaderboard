@@ -26,10 +26,10 @@ gaming.capysecurity.com {
 
 	# PocketBase API, admin UI, realtime websocket
 	handle /api/* {
-		reverse_proxy host.docker.internal:8090
+		reverse_proxy capy-leaderboard:8090
 	}
 	handle /_/* {
-		reverse_proxy host.docker.internal:8090
+		reverse_proxy capy-leaderboard:8090
 	}
 
 	# Standalone static page (local-only version, no PocketBase)
