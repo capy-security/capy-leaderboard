@@ -17,3 +17,7 @@ services:
         "--publicDir=/pb/pb_public",
         "--migrationsDir=/pb/pb_migrations",
       ]
+
+networks:
+  default:
+    name: capy-network
