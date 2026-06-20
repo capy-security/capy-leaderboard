@@ -1,0 +1,20 @@
+# Copy to your Caddy config dir and set DNS_DOMAIN to your public hostname.
+# PocketBase must be reachable at 127.0.0.1:8090 (see docker-compose.yml).
+
+gaming.capysecurity.com {
+	tls /etc/letsencrypt/live/gaming.capysecurity.com/fullchain.pem /etc/letsencrypt/live/gaming.capysecurity.com/privkey.pem
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+	}
+
+	reverse_proxy 127.0.0.1:8090
+}
+
+
+# certbot certonly --standalone --non-interactive --agree-tos -m "capy.security@proton.me" -d "gaming.capysecurity.com"
