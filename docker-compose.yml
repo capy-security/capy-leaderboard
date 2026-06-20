@@ -1,7 +1,7 @@
 services:
-  cappy-pocketbase:
+  cappy-leaderboard:
     image: ghcr.io/muchobien/pocketbase:latest
-    container_name: capy-pocketbase
+    container_name: capy-leaderboard
     restart: unless-stopped
     # Host-only publish: Caddy (other compose) reaches PocketBase via host.docker.internal:8090
     # or via capy-network using reverse_proxy capy-pocketbase:8090
