@@ -376,14 +376,34 @@ async function loadFromPocketBase(){
   state = normalizeState(created.state);
 }
 
+async function startApp(){
+  setLocked(false);
+  paintHeaderInvaders();
+  try{
+    await loadFromPocketBase();
+  }catch(e){
+    console.error("Load failed:", e);
+    toast("Impossible de charger — vérifie PocketBase");
+    pb.authStore.clear();
+    setLocked(true);
+    return;
+  }
+  document.getElementById("rankPts").value = state.rankPts.join(",");
+  renderAll();
+  await startRealtime();
+}
+
 async function flushSave(){
-  if(!tournamentId || !pb.authStore.isValid) return;
-  if(saveInFlight){ pendingSave=true; return; }
+  if(!tournamentId || !pb.authStore.isValid) return false;
+  if(saveInFlight){ pendingSave=true; return false; }
   saveInFlight=true;
   try{
     await pb.collection("tournaments").update(tournamentId,{ state });
+    return true;
   }catch(e){
+    console.error("Save failed:", e);
     toast("Erreur de sauvegarde");
+    return false;
   }finally{
     saveInFlight=false;
     if(pendingSave){
@@ -392,9 +412,27 @@ async function flushSave(){
     }
   }
 }
-function save(){
+function saveDebounced(){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{ void flushSave(); }, SAVE_DEBOUNCE_MS);
+}
+async function saveNow(){
+  clearTimeout(saveTimer);
+  saveTimer=null;
+  return flushSave();
+}
+function flushSaveOnUnload(){
+  if(!tournamentId || !pb.authStore.isValid) return;
+  clearTimeout(saveTimer);
+  saveTimer=null;
+  if(saveInFlight) return;
+  const url=`${pb.baseUrl}/api/collections/tournaments/records/${tournamentId}`;
+  fetch(url,{
+    method:"PATCH",
+    headers:{ "Content-Type":"application/json", Authorization:pb.authStore.token },
+    body:JSON.stringify({ state }),
+    keepalive:true,
+  });
 }
 
 function renderPlayers(){
@@ -483,7 +521,7 @@ function addPlayer(){
   const name=inp.value.trim();
   if(!name) return;
   state.players.push(mkPlayer(name));
-  inp.value=""; save(); renderAll(); blip(720); toast("Joueur ajouté");
+  inp.value=""; void saveNow(); renderAll(); blip(720); toast("Joueur ajouté");
 }
 function addGame(){
   const inp=document.getElementById("newGame");
@@ -491,7 +529,7 @@ function addGame(){
   const mode=document.getElementById("newGameMode").value;
   const dir=document.getElementById("newGameDir").value;
   state.games.push({id:uid(),name,mode,dir,results:{}});
-  inp.value=""; save(); renderAll(); blip(640); toast("Jeu ajouté");
+  inp.value=""; void saveNow(); renderAll(); blip(640); toast("Jeu ajouté");
 }
 
 function bindUiEvents(){
@@ -515,7 +553,7 @@ function bindUiEvents(){
   document.getElementById("newGame").addEventListener("keydown",e=>{if(e.key==="Enter")addGame();});
   document.getElementById("savePts").addEventListener("click",()=>{
     const v=document.getElementById("rankPts").value.split(",").map(x=>Number(x.trim())).filter(x=>!isNaN(x));
-    if(v.length){ state.rankPts=v; save(); renderAll(); blip(880); toast("Points mis à jour"); }
+    if(v.length){ state.rankPts=v; void saveNow(); renderAll(); blip(880); toast("Points mis à jour"); }
   });
 
   document.addEventListener("click",e=>{
@@ -523,10 +561,10 @@ function bindUiEvents(){
     if(dp){
       state.players=state.players.filter(p=>p.id!==dp.dataset.delPlayer);
       state.games.forEach(g=>{ if(g.results) delete g.results[dp.dataset.delPlayer]; });
-      save(); renderAll(); blip(300,.1); return;
+      void saveNow(); renderAll(); blip(300,.1); return;
     }
     const dg=e.target.closest("[data-del-game]");
-    if(dg){ state.games=state.games.filter(g=>g.id!==dg.dataset.delGame); save(); renderAll(); blip(300,.1); return; }
+    if(dg){ state.games=state.games.filter(g=>g.id!==dg.dataset.delGame); void saveNow(); renderAll(); blip(300,.1); return; }
   });
   document.addEventListener("input",e=>{
     const r=e.target.closest("[data-res]");
@@ -535,7 +573,7 @@ function bindUiEvents(){
     const g=state.games.find(x=>x.id===gid); if(!g) return;
     g.results=g.results||{};
     g.results[pid]= r.value==="" ? "" : r.value;
-    save();
+    saveDebounced();
     const st=gameStandings(g);
     const block=r.closest(".panel");
     if(block){
@@ -553,7 +591,7 @@ function bindUiEvents(){
   document.getElementById("resetAll").addEventListener("click",()=>{
     if(confirm("Tout effacer (joueurs, jeux, scores) ?")){
       state={players:[],games:[],rankPts:[...DEFAULT_RANK_PTS]};
-      save();
+      void saveNow();
       renderAll();
       blip(200,.2);
       toast("Réinitialisé");
@@ -576,15 +614,6 @@ async function startRealtime(){
   });
 }
 
-async function startApp(){
-  setLocked(false);
-  paintHeaderInvaders();
-  await loadFromPocketBase();
-  document.getElementById("rankPts").value = state.rankPts.join(",");
-  renderAll();
-  await startRealtime();
-}
-
 document.getElementById("authForm").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const email=document.getElementById("authEmail").value.trim();
@@ -605,6 +634,10 @@ document.getElementById("authForm").addEventListener("submit", async (e)=>{
 });
 
 bindUiEvents();
+window.addEventListener("pagehide", flushSaveOnUnload);
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden") void saveNow();
+});
 if(pb.authStore.isValid){
   void startApp();
 }else{
